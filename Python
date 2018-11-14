@@ -1,0 +1,120 @@
+#__author__ = 'chenghoufeng'
+# -*- coding: utf-8 -*-
+
+import MySQLdb
+import xlwt
+import time
+from redminelib import Redmine
+from progressbar import ProgressBar
+
+# 连接Redmine
+def set_Redmine():
+    REDMINE_URL = 'http://redmine.ptq.com' #redmine 的地址
+    REDMINE_KEY = '**********************'#这个是自己redmine的账号
+    redmine = Redmine(REDMINE_URL,key=REDMINE_KEY)
+    issues = redmine.issue.all(project_id = 'ptq',status_id='*',tracker_id=None)
+    return issues
+
+# 清空全部数据表
+def Empty_data():
+     # 打开数据库连接
+    db = MySQLdb.connect("MySQL数据库ip", "root", "MySQL登陆密码", "BUG", charset='utf8' )
+    # 使用cursor()方法获取操作游标 
+    cursor = db.cursor()
+    sql  = "truncate table Bugs"
+    sql1 = "truncate table The_BUG_days_report"
+    sql2 = "truncate table The_BUG_weeks_report"
+    sql3 = "truncate table The_BUG_month_report"
+    sql4 = "truncate table The_BUG_year_report"
+    print u'一、清空全部数据表'
+    try:
+    # 执行sql语句
+        #不需要清除BUG表的数据
+        print u'1：清除收集的Redmine的BUG数据'
+        cursor.execute(sql)
+        print u'2：清除日数据'
+        cursor.execute(sql1)
+        print u'3：清除周数据'
+        cursor.execute(sql2)
+        print u'4：清除月数据'
+        cursor.execute(sql3)
+        print u'5：清除年数据'
+        cursor.execute(sql4)
+    #提交数据
+        db.commit()
+    except:
+    #发生错误时回滚
+        print u'回滚'
+        db.rollback()
+    # 关闭数据库连接
+    db.close()
+    
+def Bugs():
+    # 先清空数据库的全部数据表
+    Empty_data()
+    print u'二、收集Bugs数据'
+    # 打开数据库连接
+    db = MySQLdb.connect("MySQL数据库ip", "root", "MySQL登陆密码", "BUG", charset='utf8' )
+    # 使用cursor()方法获取操作游标 
+    cursor = db.cursor()
+    pbar = ProgressBar()    
+    for i in pbar(set_Redmine()):
+        # SQL插入语句
+        sql = "INSERT INTO Bugs\
+            (id,project,status,priority,tracker,author,subject,start_date,done_ratio,num,updated_on)\
+            SELECT %d,'%s','%s','%s','%s','%s','%s','%s','%s','1','%s' FROM DUAL WHERE NOT EXISTS (SELECT id FROM Bugs WHERE id = %d and project = '%s')" %\
+            (i.id,i.project,i.status,i.priority,i.tracker,i.author,i.subject,i.start_date,i.done_ratio,i.updated_on,i.id,i.project)
+        #print sql
+        try:
+        # 执行sql语句
+            cursor.execute(sql)
+        #提交数据
+            db.commit()
+        except:
+        #发生错误时回滚
+            print u'回滚'
+            print i.id
+            print sql
+            db.rollback()
+    # 关闭数据库连接   
+    db.close()
+    BUG_statistical_calculation()
+
+# 按照日，周，月，年统计Bugs数量
+def BUG_statistical_calculation():
+
+    # 打开数据库连接
+    db = MySQLdb.connect("MySQL数据库ip", "root", "MySQL登陆密码", "BUG", charset='utf8' )
+    # 使用cursor()方法获取操作游标 
+    cursor = db.cursor()
+    # 删除紧急bug和优化立项的BUG（不统计在内）
+    sql  = "DELETE FROM Bugs where project = '%s'"%('紧急bug和市场优化立项')
+    sql1 = "INSERT IGNORE INTO The_BUG_days_report(days,times) SELECT DATE_FORMAT(start_date, '%Y-%m-%d') AS DAY,SUM(`num`) AS count FROM Bugs GROUP BY DAY"
+    sql2 = "INSERT IGNORE INTO The_BUG_weeks_report (WEEK, times) SELECT WEEK (DATE_ADD(start_date,INTERVAL 7 DAY)) AS WEEK,SUM(`num`) AS count FROM Bugs GROUP BY WEEK (DATE_ADD(start_date,INTERVAL 7 DAY))"
+    sql3 = "INSERT IGNORE INTO The_BUG_month_report(month,times) SELECT MONTH(start_date) as month,SUM(`num`) AS count FROM Bugs GROUP BY MONTH"
+    sql4 = "INSERT IGNORE INTO The_BUG_year_report(years,times) SELECT YEAR(start_date) as years,SUM(`num`) AS count FROM Bugs GROUP BY YEAR(start_date)"
+    try:
+        print u'三、统计，日，周，月，年Bugs数量'
+        # 执行sql语句
+        print u'1:删除紧急bug和优化立项的BUG（不统计在内）'
+        cursor.execute(sql)
+        print u'2:统计每天的Bugs数量'
+        cursor.execute(sql1)
+        print u'3:统计没周的Bugs数量'
+        cursor.execute(sql2)
+        print u'4:统计每月的Bugs数量'
+        cursor.execute(sql3)
+        print u'5:统计每年的Bugs数量'
+        cursor.execute(sql4)
+        #提交数据
+        db.commit()
+    except:
+        #发生错误时回滚
+        print u'回滚'
+        db.rollback()
+        # 关闭数据库连接
+    db.close()
+
+if __name__ == '__main__':
+    # 收集，统计bug数据
+    Bugs()
